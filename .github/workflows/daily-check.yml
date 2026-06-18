@@ -1,0 +1,32 @@
+name: 新股/转债上市日期检查
+
+on:
+  schedule:
+    # UTC 01:05 ≈ 北京时间 09:05
+    - cron: '5 1 * * *'
+  workflow_dispatch:  # 支持手动触发
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install akshare requests
+
+      - name: 检查上市日期并通知
+        env:
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+        run: python notify.py
+
+      # 把 state.json 变更提交回仓库，防止重复通知
+      - name: 持久化 state.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add state.json
+          git diff --cached --quiet || git commit -m "update state $(date +%F)" && git push
