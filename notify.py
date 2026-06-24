@@ -97,7 +97,8 @@ def main():
         print("config.json 中无监控条目，退出。")
         return
 
-    notifications = []
+    new_discoveries = []
+    status_lines = []
 
     for item in items:
         code = item["code"]
@@ -105,9 +106,11 @@ def main():
         item_type = item["type"]
         key = f"{item_type}_{code}"
 
-        # 已通知过的跳过
+        # 已通知过的直接显示已知状态
         if state.get(key, {}).get("notified"):
-            print(f"[SKIP] {name}({code}) 已通知过，上市日期: {state[key]['date']}")
+            date = state[key]["date"]
+            print(f"[DONE] {name}({code}) 已通知过，上市日期: {date}")
+            status_lines.append(f"✅ {name}（{code}）— 上市日期: {date}")
             continue
 
         print(f"[CHECK] {name}({code}) type={item_type} ...", end=" ")
@@ -119,25 +122,33 @@ def main():
                 listing_date = fetch_stock_listing_date(code)
         except Exception as e:
             print(f"查询异常: {e}")
+            status_lines.append(f"⚠️ {name}（{code}）— 查询异常")
             continue
 
         if listing_date:
             if is_recent(listing_date):
                 print(f"上市日期确定: {listing_date}")
-                notifications.append(f"✅ {name}（申购代码 {code}）— 上市日期确定: {listing_date}")
+                new_discoveries.append(f"✅ {name}（申购代码 {code}）— 上市日期确定: {listing_date}")
                 state[key] = {"date": listing_date, "notified": True, "at": TODAY}
+                status_lines.append(f"✅ {name}（{code}）— 上市日期: {listing_date}（新发现！）")
             else:
                 print(f"上市日期 {listing_date}（已过期，跳过）")
+                status_lines.append(f"⏳ {name}（{code}）— 已过期: {listing_date}")
         else:
             print("尚未公布上市日期")
+            status_lines.append(f"⏳ {name}（{code}）— 尚未公布上市日期")
 
-    # 发送汇总通知
-    if notifications:
-        body = "\n\n".join(notifications)
-        print(f"\n[NOTIFY] 发现 {len(notifications)} 个新上市日期，推送中...")
-        send_pushplus("新股/转债上市日期通知", body)
+    # 发送状态汇报
+    status_body = "\n".join(status_lines)
+    if new_discoveries:
+        title = f"🔔 新发现！{len(new_discoveries)} 个上市日期确定"
+        body = "【新发现】\n" + "\n".join(new_discoveries) + "\n\n【全部状态】\n" + status_body
     else:
-        print("\n[INFO] 无新发现，无需通知。")
+        title = "📋 上市监控日报"
+        body = "暂无新发现，以下是当前监控状态：\n\n" + status_body
+
+    print(f"\n[NOTIFY] 推送状态汇报...")
+    send_pushplus(title, body)
 
     save_json(STATE_FILE, state)
     print("[DONE] state.json 已保存")
