@@ -2,8 +2,8 @@ name: 新股/转债上市日期检查
 
 on:
   schedule:
-    # UTC 01:05 ≈ 北京时间 09:05
-    - cron: '5 1 * * *'
+    # UTC 01:05 ≈ 北京时间 09:05，仅工作日（周一至周五）
+    - cron: '5 1 * * 1-5'
   workflow_dispatch:  # 支持手动触发
 
 permissions:
