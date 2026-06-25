@@ -4,7 +4,8 @@ on:
   schedule:
     # UTC 01:05 ≈ 北京时间 09:05，仅工作日（周一至周五）
     - cron: '5 1 * * 1-5'
-  workflow_dispatch:  # 支持手动触发
+  workflow_dispatch:   # 支持手动触发
+  repository_dispatch: # 备用触发（外部 cron 可调用 GitHub API 触发）
 
 permissions:
   contents: write
