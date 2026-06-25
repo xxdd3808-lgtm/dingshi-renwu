@@ -98,6 +98,7 @@ def main():
         return
 
     new_discoveries = []
+    listing_today = []
     status_lines = []
 
     for item in items:
@@ -107,15 +108,9 @@ def main():
         note = item.get("note", "")
         label = f"{name}[{note}]" if note else name
         key = f"{item_type}_{code}"
+        s = state.get(key, {})
 
-        # 已通知过的直接显示已知状态
-        if state.get(key, {}).get("notified"):
-            date = state[key]["date"]
-            print(f"[DONE] {label}({code}) 已通知过，上市日期: {date}")
-            status_lines.append(f"✅ {label}（{code}）— 上市日期: {date}")
-            continue
-
-        print(f"[CHECK] {name}({code}) type={item_type} ...", end=" ")
+        print(f"[CHECK] {label}({code}) type={item_type} ...", end=" ")
 
         try:
             if item_type == "bond":
@@ -128,23 +123,49 @@ def main():
             continue
 
         if listing_date:
-            if is_recent(listing_date):
-                print(f"上市日期确定: {listing_date}")
+            print(f"上市日期: {listing_date}")
+            # 更新 state 中的日期
+            if s.get("date") != listing_date:
+                s["date"] = listing_date
+
+            # 通知1: 查到上市日期（首次发现）
+            # 兼容旧版 state 格式（notified=True 等同于 date_notified）
+            if not s.get("date_notified") and not s.get("notified"):
                 new_discoveries.append(f"✅ {label}（申购代码 {code}）— 上市日期确定: {listing_date}")
-                state[key] = {"date": listing_date, "notified": True, "at": TODAY}
-                status_lines.append(f"✅ {label}（{code}）— 上市日期: {listing_date}（新发现！）")
+                s["date_notified"] = True
+                s["date_notified_at"] = TODAY
+
+            # 通知2: 上市当日
+            if listing_date <= TODAY and not s.get("day_notified"):
+                listing_today.append(f"🚀 {label}（申购代码 {code}）— 今日上市！（{listing_date}）")
+                s["day_notified"] = True
+                s["day_notified_at"] = TODAY
+
+            # 状态行
+            if s.get("day_notified"):
+                status_lines.append(f"✅ {label}（{code}）— 已上市: {listing_date}")
+            elif listing_date <= TODAY:
+                status_lines.append(f"🔔 {label}（{code}）— 今日上市: {listing_date}")
             else:
-                print(f"上市日期 {listing_date}（已过期，跳过）")
-                status_lines.append(f"⏳ {label}（{code}）— 已过期: {listing_date}")
+                status_lines.append(f"📋 {label}（{code}）— 上市日期: {listing_date}")
+
+            state[key] = s
         else:
             print("尚未公布上市日期")
             status_lines.append(f"⏳ {label}（{code}）— 尚未公布上市日期")
 
-    # 发送状态汇报
-    status_body = "\n".join(status_lines)
+    # 构建通知内容
+    alerts = []
     if new_discoveries:
-        title = f"🔔 新发现！{len(new_discoveries)} 个上市日期确定"
-        body = "【新发现】\n" + "\n".join(new_discoveries) + "\n\n【全部状态】\n" + status_body
+        alerts.append("【新发现上市日期】\n" + "\n".join(new_discoveries))
+    if listing_today:
+        alerts.append("【今日上市提醒】\n" + "\n".join(listing_today))
+
+    status_body = "【全部状态】\n" + "\n".join(status_lines)
+
+    if alerts:
+        title = f"🔔 上市提醒（{len(new_discoveries) + len(listing_today)} 条）"
+        body = "\n\n".join(alerts) + "\n\n" + status_body
     else:
         title = "📋 上市监控日报"
         body = "暂无新发现，以下是当前监控状态：\n\n" + status_body
