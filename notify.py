@@ -104,13 +104,15 @@ def main():
         code = item["code"]
         name = item["name"]
         item_type = item["type"]
+        note = item.get("note", "")
+        label = f"{name}[{note}]" if note else name
         key = f"{item_type}_{code}"
 
         # 已通知过的直接显示已知状态
         if state.get(key, {}).get("notified"):
             date = state[key]["date"]
-            print(f"[DONE] {name}({code}) 已通知过，上市日期: {date}")
-            status_lines.append(f"✅ {name}（{code}）— 上市日期: {date}")
+            print(f"[DONE] {label}({code}) 已通知过，上市日期: {date}")
+            status_lines.append(f"✅ {label}（{code}）— 上市日期: {date}")
             continue
 
         print(f"[CHECK] {name}({code}) type={item_type} ...", end=" ")
@@ -122,21 +124,21 @@ def main():
                 listing_date = fetch_stock_listing_date(code)
         except Exception as e:
             print(f"查询异常: {e}")
-            status_lines.append(f"⚠️ {name}（{code}）— 查询异常")
+            status_lines.append(f"⚠️ {label}（{code}）— 查询异常")
             continue
 
         if listing_date:
             if is_recent(listing_date):
                 print(f"上市日期确定: {listing_date}")
-                new_discoveries.append(f"✅ {name}（申购代码 {code}）— 上市日期确定: {listing_date}")
+                new_discoveries.append(f"✅ {label}（申购代码 {code}）— 上市日期确定: {listing_date}")
                 state[key] = {"date": listing_date, "notified": True, "at": TODAY}
-                status_lines.append(f"✅ {name}（{code}）— 上市日期: {listing_date}（新发现！）")
+                status_lines.append(f"✅ {label}（{code}）— 上市日期: {listing_date}（新发现！）")
             else:
                 print(f"上市日期 {listing_date}（已过期，跳过）")
-                status_lines.append(f"⏳ {name}（{code}）— 已过期: {listing_date}")
+                status_lines.append(f"⏳ {label}（{code}）— 已过期: {listing_date}")
         else:
             print("尚未公布上市日期")
-            status_lines.append(f"⏳ {name}（{code}）— 尚未公布上市日期")
+            status_lines.append(f"⏳ {label}（{code}）— 尚未公布上市日期")
 
     # 发送状态汇报
     status_body = "\n".join(status_lines)
