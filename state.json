@@ -2,6 +2,8 @@
   "stock_001399": {
     "date": "2026-06-26",
     "notified": true,
-    "at": "2026-06-25"
+    "at": "2026-06-25",
+    "day_notified": true,
+    "day_notified_at": "2026-06-26"
   }
 }
