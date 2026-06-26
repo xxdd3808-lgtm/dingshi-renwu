@@ -2,13 +2,17 @@ name: 新股/转债上市日期检查
 
 on:
   schedule:
-    # UTC 01:05 ≈ 北京时间 09:05，仅工作日（周一至周五）
-    - cron: '5 1 * * 1-5'
-  workflow_dispatch:   # 支持手动触发
-  repository_dispatch: # 备用触发（外部 cron 可调用 GitHub API 触发）
+    # 多个时间点触发，提高可靠性
+    # GitHub Actions 对低活跃仓库的 schedule 容易漏触发，分散到多个时间点降低全部漏掉的概率
+    - cron: '5 1 * * 1-5'    # UTC 01:05 = 北京 09:05
+    - cron: '15 1 * * 1-5'   # UTC 01:15 = 北京 09:15
+    - cron: '35 1 * * 1-5'   # UTC 01:35 = 北京 09:35
+  workflow_dispatch:
+  repository_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   check:
@@ -18,19 +22,41 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 检查今天是否已运行
+        id: already_run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TODAY=$(date -u +%Y-%m-%d)
+          RUNS=$(gh api "repos/${{ github.repository }}/actions/runs?created=>=${TODAY}&status=completed&per_page=20" \
+            --jq ".workflow_runs[] | select(.name==\"新股/转债上市日期检查\") | .id" 2>/dev/null)
+          # 排除当前运行自身
+          CURRENT_ID="${{ github.run_id }}"
+          OTHER_RUNS=$(echo "$RUNS" | grep -v "^${CURRENT_ID}$" | head -1)
+          if [ -n "$OTHER_RUNS" ]; then
+            echo "今天已运行过 (run: $OTHER_RUNS)，跳过重复执行"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "今天首次运行，开始检查"
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - uses: actions/setup-python@v5
+        if: steps.already_run.outputs.skip != 'true'
         with:
           python-version: '3.11'
 
       - run: pip install akshare requests
+        if: steps.already_run.outputs.skip != 'true'
 
       - name: 检查上市日期并通知
+        if: steps.already_run.outputs.skip != 'true'
         env:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
         run: python notify.py
 
-      # 把 state.json 变更提交回仓库，防止重复通知
       - name: 持久化 state.json
+        if: steps.already_run.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
