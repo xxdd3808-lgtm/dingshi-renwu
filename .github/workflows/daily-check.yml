@@ -22,41 +22,18 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 检查今天是否已运行
-        id: already_run
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TODAY=$(date -u +%Y-%m-%d)
-          RUNS=$(gh api "repos/${{ github.repository }}/actions/runs?created=>=${TODAY}&status=completed&per_page=20" \
-            --jq ".workflow_runs[] | select(.name==\"新股/转债上市日期检查\") | .id" 2>/dev/null)
-          # 排除当前运行自身
-          CURRENT_ID="${{ github.run_id }}"
-          OTHER_RUNS=$(echo "$RUNS" | grep -v "^${CURRENT_ID}$" | head -1)
-          if [ -n "$OTHER_RUNS" ]; then
-            echo "今天已运行过 (run: $OTHER_RUNS)，跳过重复执行"
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "今天首次运行，开始检查"
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
-
       - uses: actions/setup-python@v5
-        if: steps.already_run.outputs.skip != 'true'
         with:
           python-version: '3.11'
 
       - run: pip install akshare requests
-        if: steps.already_run.outputs.skip != 'true'
 
       - name: 检查上市日期并通知
-        if: steps.already_run.outputs.skip != 'true'
         env:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
         run: python notify.py
 
       - name: 持久化 state.json
-        if: steps.already_run.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
