@@ -4,6 +4,7 @@
     {"code": "754270", "name": "金帝发债", "type": "bond"},
     {"code": "001399", "name": "惠科股份", "type": "stock"},
     {"code": "718484", "name": "南芯发债", "type": "bond"},
-    {"code": "718200", "name": "华峰发债", "type": "bond", "note": "彭"}
+    {"code": "718200", "name": "华峰发债", "type": "bond", "note": "彭"},
+    {"code": "713589", "name": "圣泉发债", "type": "bond", "note": "姜爸"}
   ]
 }
