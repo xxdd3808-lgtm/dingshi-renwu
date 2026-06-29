@@ -4,9 +4,9 @@ on:
   schedule:
     # 多个时间点触发，提高可靠性
     # GitHub Actions 对低活跃仓库的 schedule 容易漏触发，分散到多个时间点降低全部漏掉的概率
-    - cron: '5 1 * * 1-5'    # UTC 01:05 = 北京 09:05
-    - cron: '15 1 * * 1-5'   # UTC 01:15 = 北京 09:15
-    - cron: '35 1 * * 1-5'   # UTC 01:35 = 北京 09:35
+    - cron: '5 1 * * *'      # UTC 01:05 = 北京 09:05，每天
+    - cron: '15 1 * * *'     # UTC 01:15 = 北京 09:15，每天
+    - cron: '35 1 * * *'     # UTC 01:35 = 北京 09:35，每天
   workflow_dispatch:
   repository_dispatch:
 
