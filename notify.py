@@ -154,24 +154,23 @@ def main():
             print("尚未公布上市日期")
             status_lines.append(f"⏳ {label}（{code}）— 尚未公布上市日期")
 
-    # 构建通知内容
+    # 构建通知内容 — 只有新发现或上市当日才推送
     alerts = []
     if new_discoveries:
         alerts.append("【新发现上市日期】\n" + "\n".join(new_discoveries))
     if listing_today:
         alerts.append("【今日上市提醒】\n" + "\n".join(listing_today))
 
-    status_body = "【全部状态】\n" + "\n".join(status_lines)
-
     if alerts:
+        status_body = "【全部状态】\n" + "\n".join(status_lines)
         title = f"🔔 上市提醒（{len(new_discoveries) + len(listing_today)} 条）"
         body = "\n\n".join(alerts) + "\n\n" + status_body
+        print(f"\n[NOTIFY] 推送中...")
+        send_pushplus(title, body)
     else:
-        title = "📋 上市监控日报"
-        body = "暂无新发现，以下是当前监控状态：\n\n" + status_body
-
-    print(f"\n[NOTIFY] 推送状态汇报...")
-    send_pushplus(title, body)
+        print(f"\n[INFO] 无新发现，不推送（{len(status_lines)} 个条目）")
+        for line in status_lines:
+            print(f"  {line}")
 
     save_json(STATE_FILE, state)
     print("[DONE] state.json 已保存")
