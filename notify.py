@@ -3,7 +3,10 @@
 
 import json
 import os
+import re
 from datetime import datetime, timedelta
+from urllib.request import Request, urlopen
+from urllib.parse import quote
 
 import akshare as ak
 import requests
@@ -88,6 +91,61 @@ def send_pushplus(title, content):
     return ok
 
 
+def search_taotiehai_prediction(bond_name):
+    """搜索饕餮海对某转债的上市价格预测（通过搜狗微信搜索）"""
+    short = bond_name.replace("转债", "").replace("发债", "")
+    query = f"饕餮海 {short} 转债 上市 预估"
+    url = f"https://weixin.sogou.com/weixin?type=2&query={quote(query)}"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "text/html",
+    }
+
+    # 先匹配"每手盈利"（优先级更高），再匹配价格区间
+    profit_pattern = re.compile(r"每手.*?(?:盈利[：:]?\s*)?(\d{2,4})\s*[—~\-至到～]\s*(\d{2,4})\s*元")
+    price_pattern = re.compile(r"(\d{2,3}(?:\.\d+)?)\s*[—~\-至到～]\s*(\d{2,3}(?:\.\d+)?)\s*元")
+
+    try:
+        req = Request(url, headers=headers)
+        with urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+
+        # 从搜狗搜索结果中提取摘要文本
+        snippets = re.findall(r'class="txt-info"[^>]*>(.*?)</p>', html, re.DOTALL)
+
+        for snippet in snippets:
+            text = re.sub(r"<[^>]+>", "", snippet)  # 去 HTML 标签
+            if "饕餮海" not in text and "饕餮海投资" not in text:
+                continue
+
+            # 优先匹配"每手盈利"格式
+            m = profit_pattern.search(text)
+            if m:
+                low, high = int(m.group(1)), int(m.group(2))
+                if 100 < low < 200:  # 已经是每张价格范围，不是盈利
+                    return f"{low}~{high}元 (来源: 饕餮海公众号)"
+                return f"每手盈利{low}~{high}元 (来源: 饕餮海公众号)"
+
+            # 再匹配价格区间
+            m2 = price_pattern.search(text)
+            if m2:
+                return f"{m2.group(1)}~{m2.group(2)}元 (来源: 饕餮海公众号)"
+
+    except Exception as e:
+        print(f"  [WARN] 搜索饕餮海预测失败: {e}")
+
+    return None
+
+
+def get_taotiehai_search_links(bond_name):
+    """生成饕餮海预测的搜索链接（附在通知中供用户手动查看）"""
+    short = bond_name.replace("转债", "").replace("发债", "")
+    xueqiu_url = f"https://xueqiu.com/query/v1/search/status.json?q={quote(short + ' 饕餮海')}&count=5&sort=time"
+    sogou_url = f"https://weixin.sogou.com/weixin?type=2&query={quote('饕餮海 ' + short + ' 转债 上市')}"
+    return f"雪球搜索: {xueqiu_url}\n    微信搜索: {sogou_url}"
+
+
 def main():
     config = load_json(CONFIG_FILE, {"items": []})
     state = load_json(STATE_FILE, {})
@@ -131,7 +189,13 @@ def main():
             # 通知1: 查到上市日期（首次发现）
             # 兼容旧版 state 格式（notified=True 等同于 date_notified）
             if not s.get("date_notified") and not s.get("notified"):
-                new_discoveries.append(f"✅ {label}（申购代码 {code}）— 上市日期确定: {listing_date}")
+                pred = search_taotiehai_prediction(name)
+                if pred:
+                    pred_text = f"\n    预涨幅: {pred}"
+                else:
+                    links = get_taotiehai_search_links(name)
+                    pred_text = f"\n    预涨幅: 未查到，手动搜索:\n    {links}"
+                new_discoveries.append(f"✅ {label}（申购代码 {code}）— 上市日期确定: {listing_date}{pred_text}")
                 s["date_notified"] = True
                 s["date_notified_at"] = TODAY
 
