@@ -4,7 +4,7 @@
 import json
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, date
 from urllib.request import Request, urlopen
 from urllib.parse import quote
 
@@ -18,6 +18,7 @@ STATE_FILE = os.path.join(SCRIPT_DIR, "state.json")
 PUSHPLUS_TOKEN = os.environ.get("PUSHPLUS_TOKEN", "")
 
 TODAY = datetime.now().strftime("%Y-%m-%d")
+TODAY_DATE = datetime.now().date()
 
 
 def load_json(path, default=None):
@@ -38,18 +39,21 @@ def is_valid_listing_date(val):
     return s not in ("NaT", "nan", "None", "", "nat")
 
 
-def is_recent(date_str, days=60):
-    """上市日期是否在最近 N 天内（防止首次运行误报老数据）"""
+def parse_date(date_str):
+    """解析 YYYY-MM-DD，失败返回 None"""
     try:
-        d = datetime.strptime(date_str[:10], "%Y-%m-%d")
-        return d >= datetime.now() - timedelta(days=days)
-    except ValueError:
-        return False
+        return datetime.strptime(str(date_str)[:10], "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
 
 
 def fetch_bond_listing_date(code):
     """查询可转债上市日期（通过申购代码匹配）"""
     df = ak.bond_zh_cov()
+    if "申购代码" not in df.columns or "上市时间" not in df.columns:
+        raise RuntimeError(
+            f"akshare.bond_zh_cov 列名变化: 期望 ['申购代码','上市时间'], 实际 {list(df.columns)}"
+        )
     match = df[df["申购代码"].astype(str).str.strip() == code]
     if match.empty:
         return None
@@ -62,6 +66,10 @@ def fetch_bond_listing_date(code):
 def fetch_stock_listing_date(code):
     """查询新股上市日期（通过申购代码或股票代码匹配）"""
     df = ak.stock_xgsglb_em(symbol="全部股票")
+    if "上市日期" not in df.columns:
+        raise RuntimeError(
+            f"akshare.stock_xgsglb_em 列名变化: 缺少 '上市日期', 实际 {list(df.columns)}"
+        )
     # 先按申购代码查，再按股票代码查
     for col in ["申购代码", "股票代码"]:
         if col not in df.columns:
@@ -75,20 +83,35 @@ def fetch_stock_listing_date(code):
 
 
 def send_pushplus(title, content):
-    """通过 PushPlus 发送微信推送"""
+    """通过 PushPlus 发送微信推送（HTTPS + 1 次重试）"""
     if not PUSHPLUS_TOKEN:
         print("[WARN] PUSHPLUS_TOKEN 未设置，跳过推送（仅打印）")
         print(f"--- {title} ---\n{content}\n---")
         return False
-    resp = requests.post(
-        "http://www.pushplus.plus/send",
-        json={"token": PUSHPLUS_TOKEN, "title": title, "content": content, "template": "txt"},
-        timeout=15,
-    )
-    data = resp.json()
-    ok = data.get("code") == 200
-    print(f"[PUSH] {title} -> {'OK' if ok else data}")
-    return ok
+
+    url = "https://www.pushplus.plus/send"
+    payload = {"token": PUSHPLUS_TOKEN, "title": title, "content": content, "template": "txt"}
+
+    last_err = None
+    for attempt in range(2):  # 1 次正常 + 1 次重试
+        try:
+            resp = requests.post(url, json=payload, timeout=15)
+            data = resp.json()
+            ok = data.get("code") == 200
+            print(f"[PUSH] {title} -> {'OK' if ok else data}")
+            if ok:
+                return True
+            # PushPlus 业务错误（如 token 失效）不重试
+            return False
+        except Exception as e:
+            last_err = e
+            print(f"[WARN] 推送第 {attempt + 1} 次失败: {e}")
+            if attempt == 0:
+                import time
+                time.sleep(2)
+
+    print(f"[ERROR] 推送最终失败: {last_err}")
+    return False
 
 
 def search_taotiehai_prediction(bond_name):
@@ -156,7 +179,7 @@ def main():
         return
 
     new_discoveries = []
-    listing_today = []
+    listing_alerts = []  # 上市当日提醒 + 补通知（state 丢失时）
     status_lines = []
 
     for item in items:
@@ -186,6 +209,13 @@ def main():
             if s.get("date") != listing_date:
                 s["date"] = listing_date
 
+            # 解析为 date 对象用于比较
+            ld = parse_date(listing_date)
+            if ld is None:
+                print(f"[WARN] 上市日期格式异常: {listing_date}，跳过该条目")
+                status_lines.append(f"⚠️ {label}（{code}）— 上市日期格式异常: {listing_date}")
+                continue
+
             # 通知1: 查到上市日期（首次发现）
             # 兼容旧版 state 格式（notified=True 等同于 date_notified）
             if not s.get("date_notified") and not s.get("notified"):
@@ -199,17 +229,25 @@ def main():
                 s["date_notified"] = True
                 s["date_notified_at"] = TODAY
 
-            # 通知2: 上市当日
-            if listing_date <= TODAY and not s.get("day_notified"):
-                listing_today.append(f"🚀 {label}（申购代码 {code}）— 今日上市！（{listing_date}）")
+            # 通知2: 上市当日（仅当上市日期 == 今天，避免补报过去日期误说"今日上市"）
+            # 如果 state 丢失导致 day_notified=False 但上市日期已过，补一次"已上市"通知
+            if ld == TODAY_DATE and not s.get("day_notified"):
+                listing_alerts.append(f"🚀 {label}（申购代码 {code}）— 今日上市！（{listing_date}）")
+                s["day_notified"] = True
+                s["day_notified_at"] = TODAY
+            elif ld < TODAY_DATE and not s.get("day_notified"):
+                # 补通知：state 丢失或新增条目时，已过上市日期但未通知过
+                listing_alerts.append(f"📌 {label}（申购代码 {code}）— 已于 {listing_date} 上市（补通知）")
                 s["day_notified"] = True
                 s["day_notified_at"] = TODAY
 
             # 状态行
             if s.get("day_notified"):
                 status_lines.append(f"✅ {label}（{code}）— 已上市: {listing_date}")
-            elif listing_date <= TODAY:
+            elif ld == TODAY_DATE:
                 status_lines.append(f"🔔 {label}（{code}）— 今日上市: {listing_date}")
+            elif ld < TODAY_DATE:
+                status_lines.append(f"📌 {label}（{code}）— 已上市（未通知）: {listing_date}")
             else:
                 status_lines.append(f"📋 {label}（{code}）— 上市日期: {listing_date}")
 
@@ -222,12 +260,12 @@ def main():
     alerts = []
     if new_discoveries:
         alerts.append("【新发现上市日期】\n" + "\n".join(new_discoveries))
-    if listing_today:
-        alerts.append("【今日上市提醒】\n" + "\n".join(listing_today))
+    if listing_alerts:
+        alerts.append("【上市提醒】\n" + "\n".join(listing_alerts))
 
     if alerts:
         status_body = "【全部状态】\n" + "\n".join(status_lines)
-        title = f"🔔 上市提醒（{len(new_discoveries) + len(listing_today)} 条）"
+        title = f"🔔 上市提醒（{len(new_discoveries) + len(listing_alerts)} 条）"
         body = "\n\n".join(alerts) + "\n\n" + status_body
         print(f"\n[NOTIFY] 推送中...")
         send_pushplus(title, body)

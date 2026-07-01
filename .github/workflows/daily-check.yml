@@ -10,6 +10,11 @@ on:
   workflow_dispatch:
   repository_dispatch:
 
+# 同一时刻只允许一个检查任务运行，避免并发 push state.json 冲突
+concurrency:
+  group: daily-check
+  cancel-in-progress: false
+
 permissions:
   contents: write
   actions: write
@@ -21,6 +26,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # 拉取最新主分支，避免基于过期 ref 运行
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -33,12 +40,87 @@ jobs:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
         run: python notify.py
 
-      - name: 持久化 state.json
+      - name: 持久化 state.json（通过 GitHub API，绕过 git push 网络问题）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add state.json
-          if ! git diff --cached --quiet; then
-            git commit -m "update state $(date +%F)"
-            git push
+          set -e
+          if ! git diff --quiet state.json; then
+            python3 <<'PY'
+            import base64, json, os, sys, urllib.request
+            from datetime import datetime, timezone
+
+            token = os.environ["GH_TOKEN"]
+            repo = os.environ["GITHUB_REPOSITORY"]
+            branch = os.environ.get("GITHUB_REF_NAME", "main")
+
+            # 1. 拉取远程 state.json 的当前 sha（必填，否则 PUT 会 409 conflict）
+            api = f"https://api.github.com/repos/{repo}/contents/state.json"
+            req = urllib.request.Request(
+                api + f"?ref={branch}",
+                headers={"Authorization": f"token {token}",
+                         "Accept": "application/vnd.github.v3+json"},
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    remote = json.load(r)
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    print("[WARN] 远程 state.json 不存在，将创建")
+                    remote = {"sha": None}
+                else:
+                    raise
+
+            remote_sha = remote.get("sha")
+            remote_content = base64.b64decode(remote.get("content", "")).decode("utf-8") if remote_sha else ""
+
+            # 2. 读取本地（运行后的）state.json
+            with open("state.json", "r", encoding="utf-8") as f:
+                local_content = f.read()
+
+            # 3. 如果远程有更新（并发已提交过），合并后重写
+            if remote_sha and remote_content != "":
+                try:
+                    remote_state = json.loads(remote_content)
+                    local_state = json.loads(local_content)
+                    # 远程为准的覆盖本地，本地新增的 key 也保留
+                    merged = {**remote_state, **local_state}
+                    # 但保留远程已写入的字段优先（避免本地 race 覆盖远程新数据）
+                    for k, v in remote_state.items():
+                        if k in local_state:
+                            merged[k] = {**v, **local_state[k]}
+                    new_content = json.dumps(merged, ensure_ascii=False, indent=2)
+                    if new_content != local_content:
+                        print("[INFO] 检测到远程 state.json 更新，已合并")
+                        with open("state.json", "w", encoding="utf-8") as f:
+                            f.write(new_content)
+                        local_content = new_content
+                except Exception as e:
+                    print(f"[WARN] 合并 state 失败，使用本地版本: {e}")
+
+            # 4. PUT 更新
+            payload = json.dumps({
+                "message": f"update state {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",
+                "content": base64.b64encode(local_content.encode("utf-8")).decode(),
+                "branch": branch,
+                "sha": remote_sha,
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                api,
+                data=payload,
+                headers={"Authorization": f"token {token}",
+                         "Accept": "application/vnd.github.v3+json",
+                         "Content-Type": "application/json"},
+                method="PUT",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    print(f"[OK] state.json 已提交: HTTP {r.status}")
+            except urllib.error.HTTPError as e:
+                body = e.read().decode("utf-8", errors="ignore")[:200]
+                print(f"[ERROR] state.json 提交失败 HTTP {e.code}: {body}")
+                sys.exit(1)
+            PY
+          else
+            echo "[INFO] state.json 无变化，跳过提交"
           fi

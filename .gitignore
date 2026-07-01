@@ -1,0 +1,11 @@
+# SCF 部署产物（包含代码+依赖，无需进 git）
+scf_deploy.zip
+build/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 本地测试临时文件
+.test_*.json
