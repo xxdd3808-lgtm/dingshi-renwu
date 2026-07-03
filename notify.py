@@ -161,14 +161,6 @@ def search_taotiehai_prediction(bond_name):
     return None
 
 
-def get_taotiehai_search_links(bond_name):
-    """生成饕餮海预测的搜索链接（附在通知中供用户手动查看）"""
-    short = bond_name.replace("转债", "").replace("发债", "")
-    xueqiu_url = f"https://xueqiu.com/query/v1/search/status.json?q={quote(short + ' 饕餮海')}&count=5&sort=time"
-    sogou_url = f"https://weixin.sogou.com/weixin?type=2&query={quote('饕餮海 ' + short + ' 转债 上市')}"
-    return f"雪球搜索: {xueqiu_url}\n    微信搜索: {sogou_url}"
-
-
 def main():
     config = load_json(CONFIG_FILE, {"items": []})
     state = load_json(STATE_FILE, {})
@@ -223,8 +215,7 @@ def main():
                 if pred:
                     pred_text = f"\n    预涨幅: {pred}"
                 else:
-                    links = get_taotiehai_search_links(name)
-                    pred_text = f"\n    预涨幅: 未查到，手动搜索:\n    {links}"
+                    pred_text = f"\n    预涨幅: 未查到"
                 new_discoveries.append(f"✅ {label}（申购代码 {code}）— 上市日期确定: {listing_date}{pred_text}")
                 s["date_notified"] = True
                 s["date_notified_at"] = TODAY
