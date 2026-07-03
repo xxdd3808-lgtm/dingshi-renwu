@@ -8,6 +8,7 @@
   },
   "bond_754129": {
     "date": "2026-07-07",
-    "date_notified": false
+    "date_notified": true,
+    "date_notified_at": "2026-07-03"
   }
 }
