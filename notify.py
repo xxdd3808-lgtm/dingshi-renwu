@@ -230,6 +230,18 @@ def search_taotiehai_prediction(bond_name):
         return None
 
 
+def get_prediction_text(item, name):
+    """获取预涨幅文本：优先 config.json prediction 字段，否则 Firecrawl 查饕餮海"""
+    manual_prediction = item.get("prediction", "")
+    if manual_prediction:
+        print(f"  [INFO] 使用 config.json 中的 prediction: {manual_prediction}")
+        return f"\n    预涨幅: {manual_prediction} (手动填)"
+    pred = search_taotiehai_prediction(name)
+    if pred:
+        return f"\n    预涨幅: {pred}"
+    return "\n    预涨幅: 未查到"
+
+
 def main():
     config = load_json(CONFIG_FILE, {"items": []})
     state = load_json(STATE_FILE, {})
@@ -280,17 +292,7 @@ def main():
             # 通知1: 查到上市日期（首次发现）
             # 兼容旧版 state 格式（notified=True 等同于 date_notified）
             if not s.get("date_notified") and not s.get("notified"):
-                # 优先用 config.json 的 prediction 字段（用户手动填，100% 准确）
-                manual_prediction = item.get("prediction", "")
-                if manual_prediction:
-                    pred_text = f"\n    预涨幅: {manual_prediction} (手动填)"
-                    print(f"  [INFO] 使用 config.json 中的 prediction: {manual_prediction}")
-                else:
-                    pred = search_taotiehai_prediction(name)
-                    if pred:
-                        pred_text = f"\n    预涨幅: {pred}"
-                    else:
-                        pred_text = f"\n    预涨幅: 未查到"
+                pred_text = get_prediction_text(item, name)
                 new_discoveries.append(f"✅ {label}（申购代码 {code}）— 上市日期确定: {listing_date}{pred_text}")
                 s["date_notified"] = True
                 s["date_notified_at"] = TODAY
@@ -298,7 +300,9 @@ def main():
             # 通知2: 上市当日（仅当上市日期 == 今天，避免补报过去日期误说"今日上市"）
             # 如果 state 丢失导致 day_notified=False 但上市日期已过，补一次"已上市"通知
             if ld == TODAY_DATE and not s.get("day_notified"):
-                listing_alerts.append(f"🚀 {label}（申购代码 {code}）— 今日上市！（{listing_date}）")
+                # 上市当日重新查预测（饕餮海可能上市前几天更新了价格估算）
+                pred_text = get_prediction_text(item, name)
+                listing_alerts.append(f"🚀 {label}（申购代码 {code}）— 今日上市！（{listing_date}）{pred_text}")
                 s["day_notified"] = True
                 s["day_notified_at"] = TODAY
             elif ld < TODAY_DATE and not s.get("day_notified"):
