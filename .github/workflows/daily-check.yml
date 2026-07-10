@@ -37,7 +37,6 @@ jobs:
       - name: 检查上市日期并通知
         env:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
-          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
         run: python notify.py
 
       - name: 持久化 state.json（通过 GitHub API，绕过 git push 网络问题）

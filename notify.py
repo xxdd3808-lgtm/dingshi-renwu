@@ -3,7 +3,6 @@
 
 import json
 import os
-import re
 from datetime import datetime, date
 
 import akshare as ak
@@ -112,136 +111,6 @@ def send_pushplus(title, content):
     return False
 
 
-def search_taotiehai_prediction(bond_name):
-    """搜索饕餮海对某转债的上市价格预测
-
-    优先级：
-    1. config.json 中的 prediction 字段（用户手动填，100% 准确）
-    2. Firecrawl 抓饕餮海雪球专栏文章，搜索转债名称提取价格
-
-    返回字符串如 "157-180元 (来源: 饕餮海雪球)" 或 None
-    """
-    api_key = os.environ.get("FIRECRAWL_API_KEY", "")
-    if not api_key:
-        print("  [WARN] FIRECRAWL_API_KEY 未设置，无法搜索饕餮海预测")
-        return None
-
-    # 转债名称关键词：春风发债 → 春风
-    keyword = bond_name.replace("发债", "").replace("转债", "").strip()
-    # 饕餮海文章里用 "XX 转债" 格式
-    bond_alias = keyword + "转债"
-
-    print(f"  [FIRECRAWL] 搜索饕餮海对 {bond_alias} 的预测...")
-
-    try:
-        # 步骤1: 抓饕餮海雪球用户页面，拿最近文章列表
-        resp = requests.post(
-            "https://api.firecrawl.dev/v1/scrape",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "url": "https://xueqiu.com/u/1314783718",
-                "formats": ["markdown"],
-                "onlyMainContent": True,
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if not data.get("success"):
-            print(f"  [WARN] Firecrawl 抓用户页面失败: {data}")
-            return None
-
-        md = data["data"]["markdown"]
-        # 提取文章 ID（格式：xueqiu.com/1314783718/数字）
-        article_ids = re.findall(r"xueqiu\.com/1314783718/(\d+)", md)
-        # 去重保持顺序，最多抓 20 篇（覆盖约 1 个月）
-        unique_ids = list(dict.fromkeys(article_ids))[:20]
-        print(f"  [FIRECRAWL] 找到 {len(unique_ids)} 篇文章，逐篇搜索...")
-
-        # 步骤2: 逐篇抓内容，搜索转债名称
-        for i, article_id in enumerate(unique_ids):
-            article_url = f"https://xueqiu.com/1314783718/{article_id}"
-            try:
-                resp = requests.post(
-                    "https://api.firecrawl.dev/v1/scrape",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "url": article_url,
-                        "formats": ["markdown"],
-                        "onlyMainContent": True,
-                    },
-                    timeout=30,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                if not data.get("success"):
-                    continue
-
-                article_md = data["data"]["markdown"]
-
-                # 必须同时包含转债名称和"价格估算"关键词，才算找到预测文章
-                # （避免大盘复盘文章顺带提到转债名称的误匹配）
-                if bond_alias not in article_md and keyword not in article_md:
-                    continue
-
-                if "价格估算" not in article_md and "价格在" not in article_md:
-                    print(f"  [SKIP] 文章 {article_id} 含 {bond_alias} 但无价格估算段落")
-                    continue
-
-                print(f"  [FIRECRAWL] 在文章 {article_id} 中找到 {bond_alias} 的价格估算")
-
-                # 提取价格：格式 "**7. 价格估算：** 我认为可能价格在 **175—180元。**"
-                # 支持全角破折号 —、半角 -、~ 等；用 [^\d]*? 跳过 ** 等符号
-                price_match = re.search(
-                    r"价格估算[：:][^\d]*?(\d{2,4}(?:\.\d+)?)\s*[—~\-至到～]\s*(\d{2,4}(?:\.\d+)?)\s*元",
-                    article_md,
-                )
-                if price_match:
-                    low, high = price_match.group(1), price_match.group(2)
-                    return f"{low}-{high}元 (来源: 饕餮海雪球)"
-
-                # 备选：匹配 "每手盈利 XXX-XXX 元"
-                profit_match = re.search(
-                    r"每手.*?盈利[：:]?\s*(\d{2,4})\s*[—~\-至到～]\s*(\d{2,4})\s*元",
-                    article_md,
-                )
-                if profit_match:
-                    low, high = profit_match.group(1), profit_match.group(2)
-                    return f"每手盈利{low}-{high}元 (来源: 饕餮海雪球)"
-
-                print(f"  [WARN] 文章 {article_id} 有价格估算段落但未提取到价格")
-                return None
-
-            except Exception as e:
-                print(f"  [WARN] 抓文章 {article_id} 失败: {e}")
-                continue
-
-        print(f"  [FIRECRAWL] 最近 {len(unique_ids)} 篇文章未提到 {bond_alias} 的价格估算")
-        return None
-
-    except Exception as e:
-        print(f"  [WARN] Firecrawl 查询异常: {e}")
-        return None
-
-
-def get_prediction_text(item, name):
-    """获取预涨幅文本：优先 config.json prediction 字段，否则 Firecrawl 查饕餮海"""
-    manual_prediction = item.get("prediction", "")
-    if manual_prediction:
-        print(f"  [INFO] 使用 config.json 中的 prediction: {manual_prediction}")
-        return f"\n    预涨幅: {manual_prediction} (手动填)"
-    pred = search_taotiehai_prediction(name)
-    if pred:
-        return f"\n    预涨幅: {pred}"
-    return "\n    预涨幅: 未查到"
-
-
 def main():
     config = load_json(CONFIG_FILE, {"items": []})
     state = load_json(STATE_FILE, {})
@@ -292,17 +161,14 @@ def main():
             # 通知1: 查到上市日期（首次发现）
             # 兼容旧版 state 格式（notified=True 等同于 date_notified）
             if not s.get("date_notified") and not s.get("notified"):
-                pred_text = get_prediction_text(item, name)
-                new_discoveries.append(f"✅ {label}（申购代码 {code}）— 上市日期确定: {listing_date}{pred_text}")
+                new_discoveries.append(f"✅ {label}（申购代码 {code}）— 上市日期确定: {listing_date}")
                 s["date_notified"] = True
                 s["date_notified_at"] = TODAY
 
             # 通知2: 上市当日（仅当上市日期 == 今天，避免补报过去日期误说"今日上市"）
             # 如果 state 丢失导致 day_notified=False 但上市日期已过，补一次"已上市"通知
             if ld == TODAY_DATE and not s.get("day_notified"):
-                # 上市当日重新查预测（饕餮海可能上市前几天更新了价格估算）
-                pred_text = get_prediction_text(item, name)
-                listing_alerts.append(f"🚀 {label}（申购代码 {code}）— 今日上市！（{listing_date}）{pred_text}")
+                listing_alerts.append(f"🚀 {label}（申购代码 {code}）— 今日上市！（{listing_date}）")
                 s["day_notified"] = True
                 s["day_notified_at"] = TODAY
             elif ld < TODAY_DATE and not s.get("day_notified"):

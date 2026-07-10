@@ -33,7 +33,7 @@
 3. **不要加 workflow 层去重**：每次 schedule 都真正执行查询，去重靠 state.json 条目级字段。
 4. **SCF 只是触发器**：业务逻辑全在 notify.py。修改 scf_handler.py 才需要 `python3 deploy.py` 重新部署。
 5. **上市日期判断分三档**：`== today` → "今日上市"；`< today` 且未通知 → "补通知"；`> today` → "上市日期"。
-6. **饕餮海预测搜索用 Firecrawl**：雪球有 WAF，urllib/requests 抓不到。Firecrawl API key 在 GitHub Secrets `FIRECRAWL_API_KEY`。config.json 的 `prediction` 字段优先级最高（手动填，100% 准确）。
+6. **不抓取预测价格**：预测功能已移除。纯正则从饕餮海文章抓价格不可靠（一篇文章多只转债易误抓、申购期预估 vs 上市日测算语义不同、涨停价 vs 合理价难区分）。只推送上市时间，预测用户自行查。如需恢复，优先用 config.json 的 `prediction` 字段手动填，不要重新接 Firecrawl 自动抓取。
 
 ## 常用命令
 
