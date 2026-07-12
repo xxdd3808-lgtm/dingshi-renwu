@@ -71,6 +71,12 @@ GITHUB_PAT=ghp_xxx python3 deploy.py
 - `operations.md` — 日常运维命令、PAT 更换流程
 - `monitor_list.md` — 当前监控条目状态
 
+## 关联项目
+
+- `xxdd3808-lgtm/lof-monitor` — 华宝油气 LOF 单品种折溢价监控（本项目的先行探索）
+- `xxdd3808-lgtm/arbitrage-monitor` — 多品种套利监控（可转债+QDII+封基+要约收购，6个推送信号）
+- `xxdd3808-lgtm/fzcm002027-valuation` — 分众传媒估值看板
+
 ## Git 信息
 
 - 仓库: `xxdd3808-lgtm/dingshi-renwu` (PUBLIC)
