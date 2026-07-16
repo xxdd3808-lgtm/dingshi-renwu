@@ -8,6 +8,15 @@ on:
     - cron: '15 1 * * *'     # UTC 01:15 = 北京 09:15，每天
     - cron: '35 1 * * *'     # UTC 01:35 = 北京 09:35，每天
   workflow_dispatch:
+    inputs:
+      force_push:
+        description: 强制推送状态汇总（即使无新发现）
+        required: false
+        default: "0"
+        type: choice
+        options:
+          - "0"
+          - "1"
   repository_dispatch:
 
 # 同一时刻只允许一个检查任务运行，避免并发 push state.json 冲突
@@ -37,6 +46,7 @@ jobs:
       - name: 检查上市日期并通知
         env:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          FORCE_PUSH: ${{ github.event.inputs.force_push || '0' }}
         run: python notify.py
 
       - name: 持久化 state.json（通过 GitHub API，绕过 git push 网络问题）
