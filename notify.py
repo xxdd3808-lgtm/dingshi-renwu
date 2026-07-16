@@ -13,6 +13,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
 STATE_FILE = os.path.join(SCRIPT_DIR, "state.json")
 PUSHPLUS_TOKEN = os.environ.get("PUSHPLUS_TOKEN", "")
+FORCE_PUSH = os.environ.get("FORCE_PUSH", "0") == "1"
 
 TODAY = datetime.now().strftime("%Y-%m-%d")
 TODAY_DATE = datetime.now().date()
@@ -199,10 +200,14 @@ def main():
     if listing_alerts:
         alerts.append("【上市提醒】\n" + "\n".join(listing_alerts))
 
-    if alerts:
+    if alerts or FORCE_PUSH:
         status_body = "【全部状态】\n" + "\n".join(status_lines)
-        title = f"🔔 上市提醒（{len(new_discoveries) + len(listing_alerts)} 条）"
-        body = "\n\n".join(alerts) + "\n\n" + status_body
+        if alerts:
+            body = "\n\n".join(alerts) + "\n\n" + status_body
+            title = f"🔔 上市提醒（{len(new_discoveries) + len(listing_alerts)} 条）"
+        else:
+            body = status_body
+            title = "🔔 上市状态汇总（手动触发）"
         print(f"\n[NOTIFY] 推送中...")
         send_pushplus(title, body)
     else:
