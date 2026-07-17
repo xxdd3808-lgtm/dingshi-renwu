@@ -6,6 +6,7 @@
     {"code": "718484", "name": "南芯发债", "type": "bond"},
     {"code": "718200", "name": "华峰发债", "type": "bond", "note": "彭"},
     {"code": "713589", "name": "圣泉发债", "type": "bond", "note": "姜爸"},
-    {"code": "787825", "name": "长鑫科技", "type": "stock"}
+    {"code": "787825", "name": "长鑫科技", "type": "stock"},
+    {"code": "754019", "name": "曙26发债", "type": "bond"}
   ]
 }
