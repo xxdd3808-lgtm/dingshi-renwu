@@ -40,5 +40,10 @@
     "date_notified_at": "2026-07-17",
     "day_notified": true,
     "day_notified_at": "2026-07-21"
+  },
+  "stock_787825": {
+    "date": "2026-07-27",
+    "date_notified": true,
+    "date_notified_at": "2026-07-24"
   }
 }
